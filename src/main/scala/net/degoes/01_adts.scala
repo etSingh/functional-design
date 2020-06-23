@@ -1,6 +1,8 @@
 package net.degoes
 
-import java.time.Instant
+import java.time.{Instant, YearMonth}
+
+import scala.concurrent.duration.Duration
 
 /*
  * INTRODUCTION
@@ -30,7 +32,17 @@ object credit_card {
    *  * Expiration date
    *  * Security code
    */
-  type CreditCard
+  final case class CreditCard(number: BigInt, name: String, expirationDate: YearMonth, securityCode: Int)
+
+  // A way to make the constructor Private
+  sealed abstract class Name private (name: String)
+  object Name {
+    def apply(name: String): Option[Name] =
+      if (name.trim.isEmpty)
+        None
+      else
+        Some(new Name(name) {})
+  }
 
   /**
    * EXERCISE 2
@@ -40,7 +52,11 @@ object credit_card {
    * or a digital product, such as a book or movie, or access to an event, such
    * as a music concert or film showing.
    */
-  type Product
+  sealed trait Product
+  object Product {
+    final case class Physical() extends Product
+    final case class Digital() extends Product
+  }
 
   /**
    * EXERCISE 3
@@ -49,7 +65,13 @@ object credit_card {
    * of a product price, which could be one-time purchase fee, or a recurring
    * fee on some regular interval.
    */
-  type PricingScheme
+  sealed trait PricingScheme {
+    val price: BigInt
+  }
+  object PricingScheme {
+    final case class OneTime(price: BigInt) extends PricingScheme
+    final case class Recurring(price: BigInt, interval: Duration) extends PricingScheme
+  }
 }
 
 /**
@@ -66,35 +88,29 @@ object events {
    * Refactor the object-oriented data model in this section to a more
    * functional one, which uses only sealed traits and case classes.
    */
-  abstract class Event(val id: Int) {
-
-    def time: Instant
-  }
+  // Event could have been modelled as a sum type ADT but we used Product instead
+  // by introducing the EventPayload, this makes the ADTs more compact
+  abstract sealed class Event[P](id: Int, time: Instant, payload: EventPayload)
 
   // Events are either UserEvent (produced by a user) or DeviceEvent (produced by a device),
   // please don't extend both it will break code!!!
-  trait UserEvent extends Event {
+  sealed trait EventPayload
+
+  sealed trait User extends EventPayload {
     def userName: String
   }
-
-  // Events are either UserEvent (produced by a user) or DeviceEvent (produced by a device),
-  // please don't extend both it will break code!!!
-  trait DeviceEvent extends Event {
-    def deviceId: Int
+  object User {
+    final case class Purchase(userName: String, item: String, price: Double) extends User
+    final case class AccountCreated(userName: String, item: String) extends User
   }
 
-  class SensorUpdated(id: Int, val deviceId: Int, val time: Instant, val reading: Option[Double])
-      extends Event(id)
-      with DeviceEvent
-
-  class DeviceActivated(id: Int, val deviceId: Int, val time: Instant) extends Event(id) with DeviceEvent
-
-  class UserPurchase(id: Int, val item: String, val price: Double, val time: Instant, val userName: String)
-      extends Event(id)
-      with UserEvent
-
-  class UserAccountCreated(id: Int, val userName: String, val time: Instant) extends Event(id) with UserEvent
-
+  sealed trait Device extends EventPayload {
+    def deviceId: Int
+  }
+  object Device {
+    final case class SensorUpdated(deviceId: Int, reading: Option[Double]) extends Device
+    final case class DeviceActivated(deviceId: Int) extends Device
+  }
 }
 
 /**
@@ -114,7 +130,7 @@ object documents {
    * Using only sealed traits and case classes, create a simplified but somewhat
    * realistic model of a Document.
    */
-  type Document
+  final case class Document(userId: UserId, docId: DocId, docContent: DocContent)
 
   /**
    * EXERCISE 2
@@ -123,7 +139,12 @@ object documents {
    * type that a given user might have with respect to a document. For example,
    * some users might have read-only permission on a document.
    */
-  type AccessType
+  sealed trait AccessType
+  object AccessType {
+    final case object Read extends AccessType
+    final case object Write extends AccessType
+    final case object None extends AccessType
+  }
 
   /**
    * EXERCISE 3
@@ -132,7 +153,7 @@ object documents {
    * permissions that a user has on a set of documents they have access to.
    * Do not store the document contents themselves in this model.
    */
-  type DocPermissions
+  final case class DocPermissions(userId: UserId, map: Map[DocId, AccessType])
 }
 
 /**
@@ -182,7 +203,12 @@ object portfolio {
    * Using only sealed traits and case classes, develop a model of a stock
    * exchange. Ensure there exist values for NASDAQ and NYSE.
    */
-  type Exchange
+  sealed trait Exchange
+  object Exchange {
+    final case object NASDAQ extends Exchange
+    final case object NYSE extends Exchange
+    final case class Other(name: String) extends Exchange
+  }
 
   /**
    * EXERCISE 2
@@ -190,7 +216,14 @@ object portfolio {
    * Using only sealed traits and case classes, develop a model of a currency
    * type.
    */
-  type CurrencyType
+  sealed trait CurrencyType
+  object CurrencyType {
+    final case object INR extends CurrencyType
+    final case object EUR extends CurrencyType
+    final case object GBP extends CurrencyType
+    final case object USD extends CurrencyType
+    final case class Other(symbol: String) extends CurrencyType
+  }
 
   /**
    * EXERCISE 3
@@ -198,7 +231,8 @@ object portfolio {
    * Using only sealed traits and case classes, develop a model of a stock
    * symbol. Ensure there exists a value for Apple's stock (APPL).
    */
-  type StockSymbol
+  final case class StockSymbol(name: String, symbol: String, exchange: Exchange, currencyType: CurrencyType)
+
 
   /**
    * EXERCISE 4
@@ -206,7 +240,8 @@ object portfolio {
    * Using only sealed traits and case classes, develop a model of a portfolio
    * held by a user of the web application.
    */
-  type Portfolio
+  final case class Portfolio(user: User, holdings: List[Portfolio])
+  final case class Holding(stock: StockSymbol, quantity: BigInt, shareMarketPrice: BigDecimal)
 
   /**
    * EXERCISE 5
@@ -214,7 +249,7 @@ object portfolio {
    * Using only sealed traits and case classes, develop a model of a user of
    * the web application.
    */
-  type User
+  final case class User(name: String, portfolio: Portfolio)
 
   /**
    * EXERCISE 6
@@ -222,7 +257,11 @@ object portfolio {
    * Using only sealed traits and case classes, develop a model of a trade type.
    * Example trade types might include Buy and Sell.
    */
-  type TradeType
+  sealed trait TradeType
+  object TradeType {
+    case object Buy extends TradeType
+    case object Sell extends TradeType
+  }
 
   /**
    * EXERCISE 7
@@ -231,5 +270,5 @@ object portfolio {
    * which involves a particular trade type of a specific stock symbol at
    * specific prices.
    */
-  type Trade
+  final case class Trade(tradeType: TradeType, stockSymbol: StockSymbol, user: User, number: BigInt)
 }
