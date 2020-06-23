@@ -37,6 +37,7 @@ object credit_card {
   // A way to make the constructor Private
   sealed abstract class Name private (name: String)
   object Name {
+    // This is a smart constructor -- Faster than an exhaustive ADT
     def apply(name: String): Option[Name] =
       if (name.trim.isEmpty)
         None
@@ -52,10 +53,15 @@ object credit_card {
    * or a digital product, such as a book or movie, or access to an event, such
    * as a music concert or film showing.
    */
-  sealed trait Product
+
+  sealed trait Product {
+    val name: String
+    val quantity: Int
+  }
+
   object Product {
-    final case class Physical() extends Product
-    final case class Digital() extends Product
+    case class PhysicalProduct(name: String, quantity: Int) extends Product
+    case class DigitalProduct(name: String, quantity: Int) extends Product
   }
 
   /**
@@ -203,12 +209,7 @@ object portfolio {
    * Using only sealed traits and case classes, develop a model of a stock
    * exchange. Ensure there exist values for NASDAQ and NYSE.
    */
-  sealed trait Exchange
-  object Exchange {
-    final case object NASDAQ extends Exchange
-    final case object NYSE extends Exchange
-    final case class Other(name: String) extends Exchange
-  }
+  type Exchange
 
   /**
    * EXERCISE 2

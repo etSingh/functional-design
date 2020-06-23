@@ -1,4 +1,9 @@
 package net.degoes
+
+import java.io.{BufferedInputStream, ByteArrayInputStream}
+
+import scala.util.Try
+
 /*
  * INTRODUCTION
  *
@@ -42,7 +47,10 @@ object input_stream {
      * exhausted, it will close the first input stream, make the second
      * input stream, and continue reading from the second one.
      */
-    def ++(that: IStream): IStream = ???
+    def ++(that: IStream): IStream =
+      IStream(() => {
+        new java.io.SequenceInputStream(self.createInputStream(), that.createInputStream())
+      })
 
     /**
      * EXERCISE 2
@@ -51,7 +59,10 @@ object input_stream {
      * try to create the first input stream, but if that fails by throwing
      * an exception, it will then try to create the second input stream.
      */
-    def orElse(that: IStream): IStream = ???
+    def orElse(that: IStream): IStream =
+      IStream(() => {
+        Try(self.createInputStream()) getOrElse that.createInputStream()
+      })
 
     /**
      * EXERCISE 3
@@ -60,7 +71,8 @@ object input_stream {
      * create the input stream, but wrap it in Java's `BufferedInputStream`
      * before returning it.
      */
-    def buffered: IStream = ???
+    def buffered: IStream =
+      IStream(() => new BufferedInputStream(self.createInputStream()))
   }
 
   /**
@@ -70,7 +82,19 @@ object input_stream {
    * or will read from the concatenation of all `secondaries`,
    * and will buffer everything.
    */
-  lazy val solution: IStream = ???
+
+  object IStream {
+    val empty: IStream = IStream(() => new ByteArrayInputStream(Array.ofDim[Byte](0)))
+
+    // makes the evaluation of the stream lazy
+    def suspend(is: => IStream): IStream =
+      IStream(() => is.createInputStream())
+  }
+
+  lazy val solution: IStream =
+    primary.orElse(IStream.suspend(secondaries.foldLeft(IStream.empty)((acc, next) => acc ++ next)))
+      .buffered
+  // secondaries.reduce(_ ++ _) -- Alternative to the fold above
 
   lazy val primary: IStream           = ???
   lazy val secondaries: List[IStream] = ???
@@ -94,7 +118,8 @@ object email_filter {
      * Add an "and" operator that will match an email if both the first and
      * the second email filter match the email.
      */
-    def &&(that: EmailFilter): EmailFilter = ???
+    def &&(that: EmailFilter): EmailFilter =
+      EmailFilter(email => self.matches(email) && that.matches(email))
 
     /**
      * EXERCISE 2
@@ -102,7 +127,8 @@ object email_filter {
      * Add an "or" operator that will match an email if either the first or
      * the second email filter match the email.
      */
-    def ||(that: EmailFilter): EmailFilter = ???
+    def ||(that: EmailFilter): EmailFilter =
+      EmailFilter(email => self.matches(email) || that.matches(email))
 
     /**
      * EXERCISE 3
@@ -110,7 +136,7 @@ object email_filter {
      * Add a "negate" operator that will match an email if this email filter
      * does NOT match an email.
      */
-    def negate: EmailFilter = ???
+    def negate: EmailFilter = EmailFilter(email => !self.matches(email))
   }
   object EmailFilter {
     def senderIs(address: Address): EmailFilter = EmailFilter(_.sender == address)
@@ -130,7 +156,10 @@ object email_filter {
    * addressed to "john@doe.com". Build this filter up compositionally
    * by using the defined constructors and operators.
    */
-  lazy val emailFilter1 = ???
+  lazy val emailFilter1 =
+    EmailFilter.subjectContains("discount") &&
+      EmailFilter.bodyContains("discount") &&
+      EmailFilter.recipientIs(Address("john@doe.com")).negate
 }
 
 /**
@@ -222,7 +251,14 @@ object contact_processing {
      * then the result must also fail. Only if both schema mappings succeed
      * can the resulting schema mapping succeed.
      */
-    def +(that: SchemaMapping): SchemaMapping = ???
+    def +(that: SchemaMapping): SchemaMapping =
+      SchemaMapping(csv => self.map(csv) match {
+        case MappingResult.Success(w1, value) => that.map(value) match {
+          case MappingResult.Success(w2, value) => MappingResult.Success(w1 ++ w2, value)
+          case f => f
+        }
+        case f => f
+      })
 
     /**
      * EXERCISE 2
@@ -231,7 +267,18 @@ object contact_processing {
      * applying the effects of the first one, unless it fails, and in that
      * case, applying the effects of the second one.
      */
-    def orElse(that: SchemaMapping): SchemaMapping = ???
+    def orElse(that: SchemaMapping): SchemaMapping =
+      SchemaMapping {
+        csv =>
+          self.map(csv) match {
+            case success => success
+            case MappingResult.Failure(errors1) => that.map(csv) match {
+              case s => s
+              case MappingResult.Failure(errors2) =>
+                MappingResult.Failure(errors1 ++ errors2)
+            }
+          }
+      }
 
     /**
      * BONUS: EXERCISE 3
@@ -248,7 +295,8 @@ object contact_processing {
      *
      * Add a constructor for `SchemaMapping` that renames a column.
      */
-    def rename(oldName: String, newName: String): SchemaMapping = ???
+    def rename(oldName: String, newName: String): SchemaMapping =
+      SchemaMapping(csv => MappingResult.Success(Nil, csv.rename(oldName, newName)))
 
     /**
      * EXERCISE 5
@@ -257,7 +305,12 @@ object contact_processing {
      */
     def combine(leftColumn: String, rightColumn: String)(newName: String)(
       f: (String, String) => String
-    ): SchemaMapping = ???
+    ): SchemaMapping = {
+      SchemaMapping(csv => {
+       csv.combine(leftColumn, rightColumn)(newName)(f)
+        .fold[MappingResult[ContactsCSV]](MappingResult.Failure(List("Some Error")))(res => MappingResult.Success(Nil, res))
+      })
+    }
 
     /**
      * EXERCISE 5
@@ -283,7 +336,12 @@ object contact_processing {
    * company's official schema for contacts, by composing schema mappings
    * constructed from constructors and operators.
    */
-  lazy val schemaMapping: SchemaMapping = ???
+  lazy val schemaMapping: SchemaMapping =
+    SchemaMapping.rename("email", "email_address") +
+    SchemaMapping.rename("street", "street_address") +
+    SchemaMapping.rename("postal", "postal_code") +
+      SchemaMapping.combine("fname", "lname")("full_name")(_ + " " + _) +
+      SchemaMapping.relocate("full_name", 0)
 
   val UserUploadSchema: SchemaCSV =
     SchemaCSV(List("email", "fname", "lname", "country", "street", "postal"))
@@ -394,7 +452,9 @@ object education {
      * Add a `+` operator that combines this quiz result with the specified
      * quiz result.
      */
-    def +(that: QuizResult): QuizResult = ???
+    def +(that: QuizResult): QuizResult =
+      QuizResult(this.correctPoints + that.correctPoints, this.bonusPoints + that.bonusPoints,
+        this.wrongPoints + that.wrongPoints, this.wrong ++ that.wrong)
   }
   object QuizResult {
 
@@ -404,7 +464,7 @@ object education {
      * Add an `empty` QuizResult that, when combined with any quiz result,
      * returns that same quiz result.
      */
-    def empty: QuizResult = ???
+    def empty: QuizResult = QuizResult(0, 0, 0, Vector.empty[String])
   }
 
   final case class Quiz(run: () => QuizResult) { self =>
@@ -414,14 +474,15 @@ object education {
      *
      * Add an operator `+` that appends this quiz to the specified quiz.
      */
-    def +(that: Quiz): Quiz = ???
+    def +(that: Quiz): Quiz =
+      Quiz(() => self.run() + that.run())
 
     /**
      * EXERCISE 4
      *
      * Add a unary operator `bonus` that marks this quiz as a bonus quiz.
      */
-    def bonus: Quiz = ???
+    def bonus: Quiz = Quiz(() => self.run().toBonus)
 
     /**
      * EXERCISE 5
@@ -430,7 +491,11 @@ object education {
      * enough, as determined by the specified cutoff, will do the `ifPass`
      * quiz afterward; but otherwise, do the `ifFail` quiz.
      */
-    def conditional(cutoff: Int)(ifPass: Quiz, ifFail: Quiz): Quiz = ???
+    def conditional(cutoff: Int)(ifPass: Quiz, ifFail: Quiz): Quiz =
+      Quiz(() => {
+        val result = self.run()
+        if (result.correctPoints > cutoff) result + ifPass.run() else ifFail.run()
+      })
   }
   object Quiz {
     private def grade[A](f: String => A, checker: Checker[A]): QuizResult =
@@ -467,7 +532,7 @@ object education {
      * Add an `empty` Quiz that does not ask any questions and only returns
      * an empty QuizResult.
      */
-    def empty: Quiz = ???
+    def empty: Quiz = Quiz(() => QuizResult.empty)
   }
 
   final case class Checker[-A](points: Int, isCorrect: A => Either[String, Unit])
