@@ -11,3 +11,5 @@ are composable - Feedback loops - Lego blocks that can be attached in various wa
 # General Design
 + Only add methods in a sealed trait that are `deterministic`.
 + Look to companion objects for making constructors.
+
+# Encoding functional domain Constructors and operators
